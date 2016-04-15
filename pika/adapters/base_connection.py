@@ -9,6 +9,8 @@ import socket
 import ssl
 import select
 
+from backports.ssl_match_hostname import match_hostname, CertificateError
+
 import pika.compat
 from pika import connection
 
@@ -221,10 +223,17 @@ class BaseConnection(connection.Connection):
 
             # Handle SSL Connection Negotiation
             if self.params.ssl:
+                self._check_ssl_certificate_hostname()
                 self._do_ssl_handshake()
 
         except ssl.SSLError as error:
             error = 'SSL connection to %s:%s failed: %s' % (
+                sock_addr_tuple[4][0], sock_addr_tuple[4][1], error
+            )
+            LOGGER.error(error)
+            return error
+        except CertificateError as error:
+            error = 'CertificateError while connecting to %s:%s: %s' % (
                 sock_addr_tuple[4][0], sock_addr_tuple[4][1], error
             )
             LOGGER.error(error)
@@ -244,6 +253,10 @@ class BaseConnection(connection.Connection):
 
         # Made it this far
         return None
+
+    def _check_ssl_certificate_hostname(self):
+        LOGGER.info('SSL peer certificate %s', self.socket.getpeercert())
+        match_hostname(self.socket.getpeercert(), self.params.host)
 
     def _do_ssl_handshake(self):
         """Perform SSL handshaking, copied from python stdlib test_ssl.py.
